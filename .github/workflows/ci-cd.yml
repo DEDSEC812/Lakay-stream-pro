@@ -1,0 +1,53 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  install-lint-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test -- --run
+        continue-on-error: false
+
+      - name: Build (web)
+        run: npm run build
+        env:
+          NITRO_PRESET: node-server
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_SUPABASE_PROJECT_ID: ${{ secrets.VITE_SUPABASE_PROJECT_ID }}
+
+      - name: Build (worker)
+        working-directory: ./worker
+        run: |
+          npm install
+          npm run build
+
+  deploy:
+    needs: install-lint-build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy — web
+        run: curl -fsS "${{ secrets.RENDER_DEPLOY_HOOK_WEB }}"
+
+      - name: Trigger Render deploy — worker
+        run: curl -fsS "${{ secrets.RENDER_DEPLOY_HOOK_WORKER }}"
